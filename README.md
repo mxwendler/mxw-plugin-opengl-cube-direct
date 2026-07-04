@@ -28,7 +28,7 @@ MXWendler's media-plugin host calls these entry points in `mxw_main.py`:
 |----------|---------|---------|
 | `onOpen(uri)` | `(width, height, length, fps, has_alpha)` | report the surface format |
 | `onRenderFrameGL(frame, texture, width, height)` | `bool` | render directly into the host's stream texture |
-| `onRenderPanel()` | – | draw plugin controls (a cube-size slider) in the clip panel |
+| `onRenderPanel()` | – | draw plugin controls (cube-size and top-scale sliders) in the clip panel |
 | `onSpeedRange()` | `(min, max)` | allowed clip playback speed range |
 | `onSetSpeed(speed)` | – | clip playback speed changed; store per instance |
 | `onSizeChange(w, h)` | – | host changed the render size; record it |
@@ -59,12 +59,13 @@ is called lazily on the first `onRenderFrameGL`, where the host guarantees its
 context is current, never a standalone context (see `plugin_opengl_cube`'s README
 for why that would crash).
 
-### Y flip
+### Orientation
 
-MXW media textures are top-down (row 0 = top of the image), while a GL render is
-bottom-up. This plugin compensates by flipping Y in the projection matrix
-(`proj[1, 1] = -proj[1, 1]`); the CPU-readback sibling plugin instead flips with
-`numpy.flipud` after reading pixels back.
+No y-flip: the host expects standard GL bottom-up content in plugin media
+textures (row 0 = bottom of the image), which a plain GL render delivers as-is.
+Earlier versions flipped Y in the projection matrix - that showed the render
+upside down, unnoticeable on a symmetric cube. Drag the *Top Scale* slider to 0
+(4-sided pyramid) and set the clip speed to 0 to verify: the apex must point up.
 
 ## Requirements
 

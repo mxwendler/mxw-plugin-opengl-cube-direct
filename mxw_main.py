@@ -25,9 +25,10 @@ Notes:
   differs from the previous frame.
 - Never release() the external texture wrapper: the texture belongs to
   MXWendler. Only our own fbo / depth renderbuffer are released.
-- MXW media textures are top-down (row 0 = top of the image), a GL render is
-  bottom-up, so the projection flips Y to compensate (the cpu plugin does the
-  same with numpy flipud after the readback).
+- no orientation fix-up: the host expects standard GL bottom-up content in
+  plugin media textures (row 0 = bottom), which a plain GL render delivers
+  as-is (the cpu sibling hands back its fbo readback unflipped, and
+  plugin_web_media flipud's its top-down screenshots into this orientation).
 
 Install once with:
     pip install moderngl numpy
@@ -88,12 +89,18 @@ def rotate(angle_deg, x, y, z):
 VERTEX_SHADER = """
 #version 330
 uniform mat4 mvp;
+uniform float top_scale;
 in vec3 in_pos;
 in vec3 in_col;
 out vec3 v_col;
 void main() {
+    // taper the top face (object-space y > 0): 1 = cube, 0 = 4-sided pyramid.
+    // the apex makes the orientation unmistakable - handy to verify the media
+    // is not displayed upside down (set the clip speed to 0: apex must point up)
+    vec3 p = in_pos;
+    if (p.y > 0.0) p.xz *= top_scale;
     v_col = in_col;
-    gl_Position = mvp * vec4(in_pos, 1.0);
+    gl_Position = mvp * vec4(p, 1.0);
 }
 """
 
@@ -140,6 +147,8 @@ class cube_instance:
         self.media_speed = 1.0
         # cube edge size, controlled by the onRenderPanel() slider (per instance)
         self.scale = 1.0
+        # top face scale: 1 = cube .. 0 = 4-sided pyramid (panel slider)
+        self.top_scale = 1.0
         self.ctx = None
         self.prog = None
         self.vao = None
@@ -214,9 +223,10 @@ def onRenderFrameGL(frame, texture, width, height):
     model = rotate(t * 40.0, 1, 0, 0) @ rotate(t * 55.0, 0, 1, 0) @ scale(inst.scale)
     view = translate(0, 0, -4.5)
     proj = perspective(45.0, aspect, 0.1, 100.0)
-    # MXW media textures are top-down, a GL render is bottom-up: flip Y in clip
-    # space (the cpu sibling plugin flips with numpy flipud instead)
-    proj[1, 1] = -proj[1, 1]
+    # NO y-flip: the host expects standard GL bottom-up content in plugin media
+    # textures (row 0 = bottom of the image), which a plain GL render already
+    # delivers - see plugin_web_media, which flipud's its top-down screenshots
+    # into this orientation for the same reason
     mvp = proj @ view @ model
 
     inst.ctx.enable(moderngl.DEPTH_TEST)
@@ -224,6 +234,7 @@ def onRenderFrameGL(frame, texture, width, height):
     inst.ctx.clear(0.0, 0.0, 0.0, 0.0, depth=1.0)
     # GLSL is column-major -> upload the transpose of our row-major matrices
     inst.prog["mvp"].write(np.ascontiguousarray(mvp.T).tobytes())
+    inst.prog["top_scale"].value = inst.top_scale
     inst.vao.render()
 
     # the host snapshots and restores all GL state around this call, so we don't
@@ -242,6 +253,11 @@ def onRenderPanel():
     changed, value = mxw_imgui.slider_float("Cube Size", inst.scale, 0.1, 3.0)
     if changed:
         inst.scale = value
+    # 1 = cube, 0 = 4-sided pyramid; the apex makes the orientation obvious
+    mxw_imgui.set_next_item_width(200)
+    changed, value = mxw_imgui.slider_float("Top Scale", inst.top_scale, 0.0, 1.0)
+    if changed:
+        inst.top_scale = value
 
 
 def onSpeedRange():
